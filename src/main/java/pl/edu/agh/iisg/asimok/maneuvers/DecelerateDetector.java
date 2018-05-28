@@ -56,7 +56,7 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
             endSpeed = previousSpeed;
             endAcc = previousAcc;
             end = previousTimestamp;
-            System.out.println("Saved deceleration manevuer");
+//            System.out.println("Saved deceleration manevuer");
             createAndStoreManevuer(repo);
         }else if(!inProgress && speedDiff < 0){
             // New Manevour detected - start saving data
@@ -64,7 +64,7 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
             startSpeed = previousSpeed;
             startAcc = acc;
             begin = previousTimestamp;
-            System.out.println("Started deceleration manevuer");
+//            System.out.println("Started deceleration manevuer");
         }else if(!inProgress && speedDiff > 0){
             // do nothing - its not deceleration
         }
@@ -73,9 +73,9 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
         previousTimestamp = timestamp;
     }
     private void logDataPoint(DataPoint dt){
-        System.out.println("--------");
-        System.out.println("[DataPoint]: timestamp: " + dt.getTimestamp());
-        System.out.println("[DataPoint]: speed: " + dt.getValue(4));
+//        System.out.println("--------");
+//        System.out.println("[DataPoint]: timestamp: " + dt.getTimestamp());
+//        System.out.println("[DataPoint]: speed: " + dt.getValue(4));
     }
     private void createAndStoreManevuer(ManeuverRepository repository){
         long duration = getDateDiff(begin, end, TimeUnit.SECONDS);
