@@ -1,0 +1,24 @@
+group 'pl.edu.agh.iisg.asimok'
+version '0.1'
+
+apply plugin: 'java'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.9.5'
+    compile group: 'org.mongodb', name:'mongodb-driver-sync', version: '3.7.0'
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'pl.edu.agh.iisg.asimok.maneuvers.Main'
+    }
+    from {
+        configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
