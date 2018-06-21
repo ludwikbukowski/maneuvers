@@ -3,13 +3,12 @@ package pl.edu.agh.iisg.asimok.maneuvers;
 import pl.edu.agh.iisg.asimok.maneuvers.data.DataPoint;
 import pl.edu.agh.iisg.asimok.maneuvers.data.Maneuver;
 import pl.edu.agh.iisg.asimok.maneuvers.data.SensorTag;
+import pl.edu.agh.iisg.asimok.maneuvers.structure.Deceleration;
 import pl.edu.agh.iisg.asimok.maneuvers.structure.ManeuverRepository;
 import pl.edu.agh.iisg.asimok.maneuvers.structure.MultiStreamDataProvider;
 import pl.edu.agh.iisg.asimok.maneuvers.structure.StreamDataProvider;
 
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,9 +37,75 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
     private Date previousTimestamp = null;
     private Date begin = null;
     private Date end = null;
+    // current timestamp
+    private Date timestamp;
+
+    private final int treshold  = 2;
+    private final int verbose = 1;
+
+    // time difference netween deceleration so that they can be merged
+    private final long interval_time  = 2;
+    // What is minimum speed change so its considered to be  violent deceleration.
+    private final double interval_speed  = 10;
+
+    // for aggregation
+    private ArrayList<Deceleration> aggregator = new ArrayList();
+
+    private void logMessage(String S){
+        if(verbose == 1){
+            System.out.println(S);
+        }
+    }
+
+    private void aggregate(Deceleration dec){
+        dec.log("Saving deceleration");
+        aggregator.add(dec);
+    }
+    /// when treshold hit
+    // called only when its actually peeding up
+    private void processAggregations(ManeuverRepository repository){
+        ArrayList<Deceleration> tosend = new ArrayList<>();
+        Deceleration d2 = null;
+        logMessage("Aggregator size is " + aggregator.size());
+        Iterator<Deceleration> itr = aggregator.iterator();
+        Deceleration d1 = itr.next();
+        while (itr.hasNext()) {
+            d2 = itr.next();
+            long diff  = getDateDiff(d2.startTimestamp, d1.endTimestamp,
+                    TimeUnit.SECONDS);
+            if(diff <= interval_time ){
+                logMessage("Merging decelerations...");
+                d1.log(" Merge this");
+                d2.log(" with this");
+                Deceleration d3 = d1.merge(d2);
+                d3.log("after merge ");
+                d1 = d3;
+                d2 = d1;
+            }else{
+                tosend.add(d1);
+                d1 = d2;
+            }
+        }
+        // Handling last element
+        long diff2 = getDateDiff(timestamp, d2.endTimestamp, TimeUnit.SECONDS);
+        if(diff2>=interval_time){
+            tosend.add(d2);
+            aggregator.clear();
+        }else{
+            aggregator.clear();
+            aggregator.add(d2);
+        }
+        for(Deceleration dec : tosend){
+            createAndStoreManevuer(dec, repository);
+        }
+        logMessage("Fluhing aggregator");
+
+
+    }
+
     private void handleNewDataPoint(DataPoint step, ManeuverRepository repo){
         final double newSpeed = step.getValue(4); // value 's'/'speed'
-        final Date timestamp = step.getTimestamp();
+        timestamp = step.getTimestamp();
         double speedDiff = newSpeed - previousSpeed;
         double acc;
         if(previousTimestamp != null) {
@@ -56,30 +121,46 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
             endSpeed = previousSpeed;
             endAcc = previousAcc;
             end = previousTimestamp;
-//            System.out.println("Saved deceleration manevuer");
-            createAndStoreManevuer(repo);
+            logMessage("Saved deceleration manevuer");
+//            createAndStoreManevuer(repo);
+            storeCurrentDeceleration();
+            //maybeProcessAggregations(repo);
         }else if(!inProgress && speedDiff < 0){
             // New Manevour detected - start saving data
             inProgress = true;
             startSpeed = previousSpeed;
             startAcc = acc;
             begin = previousTimestamp;
+            //maybeProcessAggregations(repo);
 //            System.out.println("Started deceleration manevuer");
         }else if(!inProgress && speedDiff > 0){
             // do nothing - its not deceleration
+            maybeProcessAggregations(repo);
         }
         previousSpeed = newSpeed;
         previousAcc = acc;
         previousTimestamp = timestamp;
     }
     private void logDataPoint(DataPoint dt){
-//        System.out.println("--------");
-//        System.out.println("[DataPoint]: timestamp: " + dt.getTimestamp());
-//        System.out.println("[DataPoint]: speed: " + dt.getValue(4));
+        logMessage("--------");
+        logMessage("[DataPoint]: timestamp: " + dt.getTimestamp());
+        logMessage("[DataPoint]: speed: " + dt.getValue(4));
     }
-    private void createAndStoreManevuer(ManeuverRepository repository){
-        long duration = getDateDiff(begin, end, TimeUnit.SECONDS);
-        final Maneuver savedManeuver = buildManeuver(begin, end, startAcc, endAcc, startSpeed, endSpeed, duration);
+
+    private void maybeProcessAggregations(ManeuverRepository repo){
+        if(aggregator.size() >= treshold){
+            processAggregations(repo);
+        }
+    }
+    private void storeCurrentDeceleration() {
+        final Deceleration dec = new Deceleration(startAcc, endAcc, startSpeed, endSpeed, begin, end);
+        aggregate(dec);
+    }
+    // TODO
+    private void createAndStoreManevuer(Deceleration dec, ManeuverRepository repository){
+        long duration = getDateDiff(dec.startTimestamp, dec.endTimestamp, TimeUnit.SECONDS);
+        final Maneuver savedManeuver = buildManeuver(dec, duration);
+        dec.log("Building manevour");
         repository.addManeuver(savedManeuver);
     }
     public static double computeAcc(double speed1, double speed2, Date time1, Date time2){
@@ -89,24 +170,33 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
     }
 
     public static long getDateDiff(Date date1, Date date2, TimeUnit timeUnit) {
-        long diffInMillies = date2.getTime() - date1.getTime();
+        long diffInMillies =  mod(date2.getTime() - date1.getTime());
         return timeUnit.convert(diffInMillies,TimeUnit.MILLISECONDS);
     }
 
-    private Maneuver buildManeuver(final Date begin, final Date end, final Double startAcc,
-                                    final Double endAcc, final Double startSpeed, final Double endSpeed, final long duration){
+    // Im not going to use library for that.
+    // Writing such a helper function instead of importing
+    // keeps my brain in shape
+    public static long mod(long X){
+        if(X<0){
+            return -X;
+        }
+        return X;
+    }
+
+    private Maneuver buildManeuver(final Deceleration dec, final long duration){
 
         final Map<String, String> params = new HashMap<>();
-        String startAccString = String.format("%.2f", startAcc);
-        String endAccString = String.format("%.2f", endAcc);
-        String startSpeedString = String.format("%.2f", startSpeed);
-        String endSpeedString = String.format("%.2f", endSpeed);
+        String startAccString = String.format("%.2f", dec.startAcc);
+        String endAccString = String.format("%.2f", dec.endAcc);
+        String startSpeedString = String.format("%.2f", dec.startSpeed);
+        String endSpeedString = String.format("%.2f", dec.endSpeed);
         params.put("START_ACCELERATION", startAccString);
         params.put("END_ACCELERATION", endAccString);
         params.put("START_SPEED", startSpeedString);
         params.put("END_SPEED", endSpeedString);
         params.put("DURATION", Double.toString(duration));
-        return new Maneuver(begin, end, "DECELERATION", params);
+        return new Maneuver(dec.startTimestamp, dec.endTimestamp, "DECELERATION", params);
 
     }
 }
