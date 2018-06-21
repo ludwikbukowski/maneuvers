@@ -40,13 +40,13 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
     // current timestamp
     private Date timestamp;
 
-    private final int treshold  = 2;
+    private final int treshold  = 1;
     private final int verbose = 1;
 
     // time difference netween deceleration so that they can be merged
     private final long interval_time  = 2;
     // What is minimum speed change so its considered to be  violent deceleration.
-    private final double interval_speed  = 10;
+    private final double interval_speed  = 5;
 
     // for aggregation
     private ArrayList<Deceleration> aggregator = new ArrayList();
@@ -65,15 +65,16 @@ public class DecelerateDetector implements pl.edu.agh.iisg.asimok.maneuvers.dete
     // called only when its actually peeding up
     private void processAggregations(ManeuverRepository repository){
         ArrayList<Deceleration> tosend = new ArrayList<>();
-        Deceleration d2 = null;
         logMessage("Aggregator size is " + aggregator.size());
         Iterator<Deceleration> itr = aggregator.iterator();
         Deceleration d1 = itr.next();
+        Deceleration d2 = d1;
         while (itr.hasNext()) {
             d2 = itr.next();
+            double speedDiff = d2.startSpeed - d1.endSpeed;
             long diff  = getDateDiff(d2.startTimestamp, d1.endTimestamp,
                     TimeUnit.SECONDS);
-            if(diff <= interval_time ){
+            if(diff <= interval_time && speedDiff < interval_speed){
                 logMessage("Merging decelerations...");
                 d1.log(" Merge this");
                 d2.log(" with this");
